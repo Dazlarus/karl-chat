@@ -1,278 +1,264 @@
-const express = require('express');
-const cors = require('cors');
-const path = require('path');
-const { WebBaseLoader } = require('langchain/document_loaders/web/web_base');
-const { Neo4jVectorStore } = require('@langchain/community/vectorstores/neo4j');
-const { ChatOllama } = require('langchain/chat_models/ollama');
-const { OllamaEmbeddings } = require('@langchain/ollama');
-const { RecursiveCharacterTextSplitter } = require('langchain/text_splitter');
-const { ChatPromptTemplate } = require('langchain/prompts');
-const { StringOutputParser } = require('langchain/schema/output_parser');
-const { RunnableSequence, RunnablePassthrough } = require('langchain/schema/runnable');
-const config = require('./config');
+import React, { useState, useEffect } from 'react';
+import './App.css';
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+const API_BASE_URL = 'http://localhost:5000/api';
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.static('public'));
+function App() {
+  const [systemStatus, setSystemStatus] = useState({
+    status: 'checking',
+    ragInitialized: false,
+    isInitializing: false,
+    error: null
+  });
+  
+  const [beforeRagInput, setBeforeRagInput] = useState('');
+  const [withRagInput, setWithRagInput] = useState('');
+  const [responses, setResponses] = useState({
+    beforeRag: null,
+    withRag: null
+  });
+  const [loading, setLoading] = useState({
+    beforeRag: false,
+    withRag: false,
+    initializing: false
+  });
 
-// Load configuration
-const appConfig = config.loadConfig();
-const OLLAMA_HOST = appConfig.OLLAMA_HOST;
-const OLLAMA_PORT = appConfig.OLLAMA_PORT;
-const DEFAULT_MODEL = appConfig.DEFAULT_MODEL;
-
-// Initialize components
-let vectorstore = null;
-let retriever = null;
-let chatModel = null;
-
-// Initialize the RAG system
-async function initializeRAG() {
+  // Check system status
+  const checkStatus = async () => {
     try {
-        console.log('Initializing RAG system...');
-        
-        // Initialize chat model
-        chatModel = new ChatOllama({
-            baseUrl: `http://${OLLAMA_HOST}:${OLLAMA_PORT}`,
-            model: DEFAULT_MODEL,
-        });
-
-        // Initialize embeddings
-        const embeddings = new OllamaEmbeddings({
-            baseUrl: `http://${OLLAMA_HOST}:${OLLAMA_PORT}`,
-            model: 'nomic-embed-text',
-        });
-
-        // Default URLs (can be made configurable)
-        const urls = [
-            "https://ollama.com",
-            "https://ollama.com/blog/windows-preview",
-            "https://ollama.com/blog/openai-compatibility",
-        ];
-
-        // Load and process documents
-        const docs = [];
-        for (const url of urls) {
-            try {
-                const loader = new WebBaseLoader(url);
-                const loadedDocs = await loader.load();
-                docs.push(...loadedDocs);
-            } catch (error) {
-                console.error(`Error loading ${url}:`, error.message);
-            }
-        }
-
-        if (docs.length === 0) {
-            throw new Error('No documents were successfully loaded');
-        }
-
-        // Split documents
-        const textSplitter = new RecursiveCharacterTextSplitter({
-            chunkSize: 7500,
-            chunkOverlap: 100,
-        });
-
-        const docSplits = await textSplitter.splitDocuments(docs);
-        console.log(`Split documents into ${docSplits.length} chunks`);
-
-        // Create vector store
-        vectorstore = await Neo4jVectorStore.fromDocuments(docSplits, embeddings, {
-            url: "bolt://localhost:7687",
-            username: "neo4j",
-            password: "password",
-        });
-
-        retriever = vectorstore.asRetriever();
-        console.log('RAG system initialized successfully');
-        
+      const response = await fetch(`${API_BASE_URL}/health`);
+      const data = await response.json();
+      setSystemStatus({
+        status: 'online',
+        ragInitialized: data.ragInitialized,
+        isInitializing: data.isInitializing,
+        error: data.initializationError
+      });
     } catch (error) {
-        console.error('Error initializing RAG system:', error);
-        throw error;
+      setSystemStatus({
+        status: 'offline',
+        ragInitialized: false,
+        isInitializing: false,
+        error: 'Cannot connect to backend server'
+      });
     }
+  };
+
+  // Initialize RAG system
+  const initializeRAG = async () => {
+    setLoading(prev => ({ ...prev, initializing: true }));
+    try {
+      const response = await fetch(`${API_BASE_URL}/initialize`, {
+        method: 'POST',
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        await checkStatus(); // Refresh status
+      } else {
+        setSystemStatus(prev => ({ ...prev, error: data.error }));
+      }
+    } catch (error) {
+      setSystemStatus(prev => ({ ...prev, error: 'Failed to initialize RAG system' }));
+    } finally {
+      setLoading(prev => ({ ...prev, initializing: false }));
+    }
+  };
+
+  // Chat without RAG
+  const chatBeforeRAG = async () => {
+    if (!beforeRagInput.trim()) return;
+
+    setLoading(prev => ({ ...prev, beforeRag: true }));
+    try {
+      const response = await fetch(`${API_BASE_URL}/chat/before-rag`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ topic: beforeRagInput }),
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setResponses(prev => ({ ...prev, beforeRag: data }));
+      } else {
+        setResponses(prev => ({ 
+          ...prev, 
+          beforeRag: { error: data.error || 'An error occurred' }
+        }));
+      }
+    } catch (error) {
+      setResponses(prev => ({ 
+        ...prev, 
+        beforeRag: { error: 'Network error: ' + error.message }
+      }));
+    } finally {
+      setLoading(prev => ({ ...prev, beforeRag: false }));
+    }
+  };
+
+  // Chat with RAG
+  const chatWithRAG = async () => {
+    if (!withRagInput.trim()) return;
+
+    setLoading(prev => ({ ...prev, withRag: true }));
+    try {
+      const response = await fetch(`${API_BASE_URL}/chat/with-rag`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ question: withRagInput }),
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setResponses(prev => ({ ...prev, withRag: data }));
+      } else {
+        setResponses(prev => ({ 
+          ...prev, 
+          withRag: { error: data.error || 'An error occurred' }
+        }));
+      }
+    } catch (error) {
+      setResponses(prev => ({ 
+        ...prev, 
+        withRag: { error: 'Network error: ' + error.message }
+      }));
+    } finally {
+      setLoading(prev => ({ ...prev, withRag: false }));
+    }
+  };
+
+  // Handle Enter key press
+  const handleKeyPress = (event, action) => {
+    if (event.key === 'Enter') {
+      action();
+    }
+  };
+
+  // Check status on component mount and periodically
+  useEffect(() => {
+    checkStatus();
+    const interval = setInterval(checkStatus, 5000); // Check every 5 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="App">
+      <header className="App-header">
+        <h1>🤖 Karl Chat</h1>
+        <p>RAG-powered chatbot using LangChain, Neo4j, and Ollama</p>
+      </header>
+
+      {/* System Status */}
+      <div className={`status-card ${systemStatus.status}`}>
+        <div className="status-indicator">
+          {systemStatus.status === 'online' ? '🟢' : 
+           systemStatus.status === 'checking' ? '🟡' : '🔴'}
+        </div>
+        <div className="status-text">
+          {systemStatus.status === 'checking' && 'Checking system status...'}
+          {systemStatus.status === 'offline' && 'Backend server offline'}
+          {systemStatus.status === 'online' && !systemStatus.ragInitialized && 'Server online - RAG system not initialized'}
+          {systemStatus.status === 'online' && systemStatus.isInitializing && 'Server online - Initializing RAG system...'}
+          {systemStatus.status === 'online' && systemStatus.ragInitialized && 'System ready! 🚀'}
+        </div>
+        {systemStatus.error && (
+          <div className="status-error">
+            Error: {systemStatus.error}
+          </div>
+        )}
+        {systemStatus.status === 'online' && !systemStatus.ragInitialized && !systemStatus.isInitializing && (
+          <button 
+            className="initialize-btn"
+            onClick={initializeRAG}
+            disabled={loading.initializing}
+          >
+            {loading.initializing ? 'Initializing...' : 'Initialize RAG System'}
+          </button>
+        )}
+      </div>
+
+      <div className="chat-container">
+        {/* Before RAG Section */}
+        <div className="chat-section before-rag">
+          <h3>💭 Without RAG</h3>
+          <p>Ask the AI about any topic using only its training data</p>
+          <div className="input-group">
+            <input
+              type="text"
+              value={beforeRagInput}
+              onChange={(e) => setBeforeRagInput(e.target.value)}
+              onKeyPress={(e) => handleKeyPress(e, chatBeforeRAG)}
+              placeholder="e.g., What is Ollama?"
+              disabled={systemStatus.status !== 'online' || !systemStatus.ragInitialized}
+            />
+            <button 
+              onClick={chatBeforeRAG}
+              disabled={loading.beforeRag || systemStatus.status !== 'online' || !systemStatus.ragInitialized}
+              className="chat-btn"
+            >
+              {loading.beforeRag ? '🤔 Thinking...' : '💬 Ask'}
+            </button>
+          </div>
+          
+          {responses.beforeRag && (
+            <div className="response-card">
+              <h4>Response:</h4>
+              {responses.beforeRag.error ? (
+                <div className="error">{responses.beforeRag.error}</div>
+              ) : (
+                <div className="response">{responses.beforeRag.response}</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* With RAG Section */}
+        <div className="chat-section with-rag">
+          <h3>🧠 With RAG</h3>
+          <p>Ask questions that will be answered using retrieved documents</p>
+          <div className="input-group">
+            <input
+              type="text"
+              value={withRagInput}
+              onChange={(e) => setWithRagInput(e.target.value)}
+              onKeyPress={(e) => handleKeyPress(e, chatWithRAG)}
+              placeholder="e.g., What is Ollama?"
+              disabled={systemStatus.status !== 'online' || !systemStatus.ragInitialized}
+            />
+            <button 
+              onClick={chatWithRAG}
+              disabled={loading.withRag || systemStatus.status !== 'online' || !systemStatus.ragInitialized}
+              className="chat-btn"
+            >
+              {loading.withRag ? '🔍 Searching...' : '🔍 Ask'}
+            </button>
+          </div>
+          
+          {responses.withRag && (
+            <div className="response-card">
+              <h4>Response:</h4>
+              {responses.withRag.error ? (
+                <div className="error">{responses.withRag.error}</div>
+              ) : (
+                <div className="response">{responses.withRag.response}</div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <footer className="App-footer">
+        <p>Make sure Ollama and Neo4j are running locally</p>
+        <p>Backend: <code>http://localhost:5000</code> | Frontend: <code>http://localhost:3000</code></p>
+      </footer>
+    </div>
+  );
 }
 
-// Routes
-
-// Health check
-app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: 'ok', 
-        ragInitialized: vectorstore !== null,
-        timestamp: new Date().toISOString()
-    });
-});
-
-// Chat endpoint - before RAG
-app.post('/api/chat/before-rag', async (req, res) => {
-    try {
-        const { topic } = req.body;
-        
-        if (!topic) {
-            return res.status(400).json({ error: 'Topic is required' });
-        }
-
-        if (!chatModel) {
-            return res.status(503).json({ error: 'Chat model not initialized' });
-        }
-
-        const prompt = ChatPromptTemplate.fromTemplate(
-            "What is {topic} in under 100 words?"
-        );
-
-        const chain = RunnableSequence.from([
-            prompt,
-            chatModel,
-            new StringOutputParser(),
-        ]);
-
-        const response = await chain.invoke({ topic });
-        
-        res.json({ 
-            response,
-            method: 'before-rag',
-            topic 
-        });
-
-    } catch (error) {
-        console.error('Error in before-rag chat:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Chat endpoint - with RAG
-app.post('/api/chat/with-rag', async (req, res) => {
-    try {
-        const { question } = req.body;
-        
-        if (!question) {
-            return res.status(400).json({ error: 'Question is required' });
-        }
-
-        if (!retriever || !chatModel) {
-            return res.status(503).json({ error: 'RAG system not initialized' });
-        }
-
-        const prompt = ChatPromptTemplate.fromTemplate(
-            `Answer the question based only on the following context in under 100 words:
-{context}
-
-Question: {question}`
-        );
-
-        const chain = RunnableSequence.from([
-            {
-                context: async (input) => {
-                    const docs = await retriever.getRelevantDocuments(input.question);
-                    return docs.map(doc => doc.pageContent).join('\n\n');
-                },
-                question: new RunnablePassthrough(),
-            },
-            prompt,
-            chatModel,
-            new StringOutputParser(),
-        ]);
-
-        const response = await chain.invoke({ question });
-        
-        res.json({ 
-            response,
-            method: 'with-rag',
-            question 
-        });
-
-    } catch (error) {
-        console.error('Error in RAG chat:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Add new URLs to vector store
-app.post('/api/add-urls', async (req, res) => {
-    try {
-        const { urls } = req.body;
-        
-        if (!urls || !Array.isArray(urls)) {
-            return res.status(400).json({ error: 'URLs array is required' });
-        }
-
-        if (!vectorstore) {
-            return res.status(503).json({ error: 'Vector store not initialized' });
-        }
-
-        const docs = [];
-        const errors = [];
-
-        for (const url of urls) {
-            try {
-                const loader = new WebBaseLoader(url);
-                const loadedDocs = await loader.load();
-                docs.push(...loadedDocs);
-            } catch (error) {
-                errors.push({ url, error: error.message });
-            }
-        }
-
-        if (docs.length > 0) {
-            const textSplitter = new RecursiveCharacterTextSplitter({
-                chunkSize: 7500,
-                chunkOverlap: 100,
-            });
-
-            const docSplits = await textSplitter.splitDocuments(docs);
-            await vectorstore.addDocuments(docSplits);
-        }
-
-        res.json({ 
-            success: true,
-            documentsAdded: docs.length,
-            errors 
-        });
-
-    } catch (error) {
-        console.error('Error adding URLs:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
-// Serve the frontend
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Error handling middleware
-app.use((error, req, res, next) => {
-    console.error('Unhandled error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-});
-
-// Start server
-async function startServer() {
-    try {
-        // Initialize RAG system first
-        await initializeRAG();
-        
-        app.listen(PORT, () => {
-            console.log(`Server running on http://localhost:${PORT}`);
-            console.log('RAG system ready for queries');
-        });
-    } catch (error) {
-        console.error('Failed to start server:', error);
-        process.exit(1);
-    }
-}
-
-// Graceful shutdown
-process.on('SIGINT', async () => {
-    console.log('Shutting down gracefully...');
-    if (vectorstore) {
-        await vectorstore.close();
-    }
-    process.exit(0);
-});
-
-// Start the application
-startServer();
+export default App;
