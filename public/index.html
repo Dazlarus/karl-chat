@@ -1,43 +1,450 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Web site created using create-react-app"
-    />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
-    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Chatbot</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>React App</title>
-  </head>
-  <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-    <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
 
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 800px;
+            padding: 30px;
+            animation: slideUp 0.6s ease-out;
+        }
 
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
-    -->
-  </body>
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #333;
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1rem;
+        }
+
+        .chat-modes {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .mode-section {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 25px;
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .mode-section:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.15);
+        }
+
+        .mode-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .mode-section .icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            font-size: 12px;
+        }
+
+        .before-rag .icon {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+        }
+
+        .with-rag .icon {
+            background: linear-gradient(135deg, #00d2d3, #54a0ff);
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e1e8ed;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+            background: white;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .response-section {
+            margin-top: 30px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 25px;
+            border-left: 4px solid #667eea;
+        }
+
+        .response-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+        }
+
+        .response {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #e1e8ed;
+            white-space: pre-wrap;
+            line-height: 1.6;
+            color: #333;
+            min-height: 100px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #667eea;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #e1e8ed;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            color: #e74c3c;
+            background: #fdf2f2;
+            border: 1px solid #f8d7da;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+        }
+
+        .status {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 10px;
+            border-radius: 10px;
+            font-weight: 500;
+        }
+
+        .status.online {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.offline {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        @media (max-width: 768px) {
+            .chat-modes {
+                grid-template-columns: 1fr;
+            }
+            
+            .container {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 RAG Chatbot</h1>
+            <p>Compare responses with and without Retrieval-Augmented Generation</p>
+        </div>
+
+        <div id="status" class="status">
+            Checking system status...
+        </div>
+
+        <div class="chat-modes">
+            <div class="mode-section before-rag">
+                <h3><span class="icon">1</span>Without RAG</h3>
+                <div class="input-group">
+                    <label for="topic">Topic to ask about:</label>
+                    <input type="text" id="topic" placeholder="e.g., Ollama">
+                </div>
+                <button id="askBeforeRAG" class="btn">Ask Without RAG</button>
+            </div>
+
+            <div class="mode-section with-rag">
+                <h3><span class="icon">2</span>With RAG</h3>
+                <div class="input-group">
+                    <label for="question">Question:</label>
+                    <input type="text" id="question" placeholder="e.g., What is Ollama?">
+                </div>
+                <button id="askWithRAG" class="btn">Ask With RAG</button>
+            </div>
+        </div>
+
+        <div id="responseSection" class="response-section" style="display: none;">
+            <h3 id="responseTitle">Response</h3>
+            <div id="response" class="response">Your response will appear here...</div>
+        </div>
+    </div>
+
+    <script>
+        let systemOnline = false;
+
+        // Check system status
+        async function checkStatus() {
+            try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+                const statusEl = document.getElementById('status');
+                
+                if (data.status === 'ok' && data.ragInitialized) {
+                    statusEl.textContent = '✅ System online and ready';
+                    statusEl.className = 'status online';
+                    systemOnline = true;
+                } else {
+                    statusEl.textContent = '⚠️ System initializing...';
+                    statusEl.className = 'status offline';
+                    systemOnline = false;
+                }
+            } catch (error) {
+                const statusEl = document.getElementById('status');
+                statusEl.textContent = '❌ System offline';
+                statusEl.className = 'status offline';
+                systemOnline = false;
+            }
+        }
+
+        // Show response
+        function showResponse(title, content, isError = false) {
+            const responseSection = document.getElementById('responseSection');
+            const responseTitle = document.getElementById('responseTitle');
+            const responseDiv = document.getElementById('response');
+            
+            responseTitle.textContent = title;
+            responseDiv.innerHTML = isError ? 
+                `<div class="error">${content}</div>` : content;
+            responseSection.style.display = 'block';
+            responseSection.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Show loading state
+        function showLoading(button, originalText) {
+            button.disabled = true;
+            button.innerHTML = '<div class="loading"><div class="spinner"></div>Processing...</div>';
+        }
+
+        // Hide loading state
+        function hideLoading(button, originalText) {
+            button.disabled = false;
+            button.textContent = originalText;
+        }
+
+        // Ask without RAG
+        document.getElementById('askBeforeRAG').addEventListener('click', async () => {
+            if (!systemOnline) {
+                showResponse('Error', 'System is not online. Please wait for initialization.', true);
+                return;
+            }
+
+            const topic = document.getElementById('topic').value.trim();
+            if (!topic) {
+                showResponse('Error', 'Please enter a topic.', true);
+                return;
+            }
+
+            const button = document.getElementById('askBeforeRAG');
+            const originalText = button.textContent;
+            
+            try {
+                showLoading(button, originalText);
+                
+                const response = await fetch('/api/chat/before-rag', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ topic }),
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResponse(`Response (Without RAG) - Topic: "${topic}"`, data.response);
+                } else {
+                    showResponse('Error', data.error || 'An error occurred', true);
+                }
+            } catch (error) {
+                showResponse('Error', 'Network error: ' + error.message, true);
+            } finally {
+                hideLoading(button, originalText);
+            }
+        });
+
+        // Ask with RAG
+        document.getElementById('askWithRAG').addEventListener('click', async () => {
+            if (!systemOnline) {
+                showResponse('Error', 'System is not online. Please wait for initialization.', true);
+                return;
+            }
+
+            const question = document.getElementById('question').value.trim();
+            if (!question) {
+                showResponse('Error', 'Please enter a question.', true);
+                return;
+            }
+
+            const button = document.getElementById('askWithRAG');
+            const originalText = button.textContent;
+            
+            try {
+                showLoading(button, originalText);
+                
+                const response = await fetch('/api/chat/with-rag', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ question }),
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResponse(`Response (With RAG) - Question: "${question}"`, data.response);
+                } else {
+                    showResponse('Error', data.error || 'An error occurred', true);
+                }
+            } catch (error) {
+                showResponse('Error', 'Network error: ' + error.message, true);
+            } finally {
+                hideLoading(button, originalText);
+            }
+        });
+
+        // Enter key support
+        document.getElementById('topic').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('askBeforeRAG').click();
+            }
+        });
+
+        document.getElementById('question').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('askWithRAG').click();
+            }
+        });
+
+        // Check status on load and periodically
+        checkStatus();
+        setInterval(checkStatus, 10000); // Check every 10 seconds
+    </script>
+</body>
 </html>
