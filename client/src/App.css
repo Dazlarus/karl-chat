@@ -162,10 +162,10 @@ body {
 .input-group input {
   flex: 1;
   padding: 1rem;
-  border: 2px solid rgba(255, 255, 255, 0.2);
+  border: 2px solid black;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.1);
-  color: white;
+  color: black;
   font-size: 1rem;
   backdrop-filter: blur(10px);
   transition: all 0.3s ease;
@@ -234,13 +234,13 @@ body {
 
 .response-card h4 {
   margin-bottom: 1rem;
-  color: rgba(255, 255, 255, 0.9);
+  color: black;
   font-size: 1.1rem;
 }
 
 .response {
   line-height: 1.6;
-  color: white;
+  color: black;
   font-size: 0.95rem;
   white-space: pre-wrap;
   background: rgba(255, 255, 255, 0.05);
@@ -379,7 +379,7 @@ body {
   }
   
   .input-group input {
-    border: 2px solid white;
+    border: 2px solid black;
   }
   
   .chat-btn {
@@ -393,5 +393,159 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* Thinking Component Styles */
+.thinking-container {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.thinking-header {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  transition: background-color 0.2s ease;
+  border-radius: 10px;
+}
+
+.thinking-header:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.thinking-header.expanded {
+  border-radius: 10px 10px 0 0;
+}
+
+.thinking-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.thinking-icon {
+  font-size: 1rem;
+}
+
+.thinking-label {
+  font-weight: 500;
+}
+
+.thinking-word-count {
+  font-size: 0.8rem;
+  opacity: 0.7;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.2rem 0.5rem;
+  border-radius: 12px;
+}
+
+.thinking-chevron {
+  transform: rotate(0deg);
+  transition: transform 0.3s ease;
+  font-size: 0.8rem;
+}
+
+.thinking-chevron.expanded {
+  transform: rotate(180deg);
+}
+
+.thinking-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease, opacity 0.3s ease;
+  opacity: 0;
+}
+
+.thinking-content.expanded {
+  max-height: 300px;
+  opacity: 1;
+}
+
+.thinking-content-inner {
+  padding: 1rem;
+  background: rgba(102, 126, 234, 0.1);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.thinking-text {
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.9);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
+/* Thinking Toggle Styles */
+.thinking-toggle {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 15px;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  margin-bottom: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.thinking-toggle-icon {
+  color: white;
+  font-size: 1rem;
+}
+
+.thinking-toggle-label {
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  user-select: none;
+}
+
+.thinking-toggle-checkbox {
+  margin-right: 0.5rem;
+  cursor: pointer;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .thinking-header {
+    padding: 0.6rem 0.8rem;
+    font-size: 0.85rem;
+  }
+  
+  .thinking-content-inner {
+    padding: 0.8rem;
+  }
+  
+  .thinking-text {
+    font-size: 0.8rem;
+  }
+  
+  .thinking-toggle {
+    flex-direction: column;
+    text-align: center;
+    gap: 0.5rem;
+  }
+  
+  .thinking-toggle-label {
+    justify-content: center;
   }
 }

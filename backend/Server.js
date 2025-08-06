@@ -120,8 +120,38 @@ async function initializeRAG() {
 
         // Create vector store
         console.log('🗄️ Creating vector store...');
+        
+        // Clean document metadata to avoid Neo4j property issues
+        const cleanedDocSplits = docSplits.map(doc => {
+            // Create a new document with cleaned metadata
+            const cleanedMetadata = {};
+            
+            // Only include primitive values in metadata
+            Object.entries(doc.metadata || {}).forEach(([key, value]) => {
+                if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+                    cleanedMetadata[key] = value;
+                } else if (value === null || value === undefined) {
+                    // Skip null/undefined values
+                } else {
+                    // Convert complex objects to strings
+                    cleanedMetadata[key] = JSON.stringify(value);
+                }
+            });
+            
+            // Ensure we have basic metadata
+            cleanedMetadata.source = cleanedMetadata.source || doc.metadata?.source || 'unknown';
+            cleanedMetadata.id = cleanedMetadata.id || `doc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            
+            return {
+                pageContent: doc.pageContent,
+                metadata: cleanedMetadata
+            };
+        });
+        
+        console.log(`🧹 Cleaned metadata for ${cleanedDocSplits.length} document chunks`);
+        
         try {
-            vectorstore = await Neo4jVectorStore.fromDocuments(docSplits, embeddings, {
+            vectorstore = await Neo4jVectorStore.fromDocuments(cleanedDocSplits, embeddings, {
                 url: NEO4J_URI,
                 username: NEO4J_USERNAME,
                 password: NEO4J_PASSWORD,
@@ -129,6 +159,10 @@ async function initializeRAG() {
                 nodeLabel: config.get('NEO4J_NODE_LABEL', 'Document'),
                 textNodeProperty: config.get('NEO4J_TEXT_PROPERTY', 'text'),
                 embeddingNodeProperty: config.get('NEO4J_EMBEDDING_PROPERTY', 'embedding'),
+                // Add metadata handling configuration
+                keywordIndexName: config.get('NEO4J_KEYWORD_INDEX', 'keyword_index'),
+                searchType: 'vector',
+                metadataKey: 'metadata'
             });
 
             retriever = vectorstore.asRetriever({
@@ -148,6 +182,77 @@ async function initializeRAG() {
     } finally {
         isInitializing = false;
     }
+}
+
+/**
+ * Parse DeepSeek response format that contains thinking and main response
+ * DeepSeek typically formats responses like:
+ * <think>
+ * thinking content here...
+ * </think>
+ * 
+ * main response content here...
+ */
+function parseThinkingResponse(response) {
+    // Check for <think> tags (DeepSeek format)
+    const thinkRegex = /<think>([\s\S]*?)<\/think>/i;
+    const thinkMatch = response.match(thinkRegex);
+    
+    if (thinkMatch) {
+        const thinking = thinkMatch[1].trim();
+        const mainResponse = response.replace(thinkRegex, '').trim();
+        
+        return {
+            thinking,
+            response: mainResponse,
+            hasThinking: true
+        };
+    }
+    
+    // Check for other common thinking patterns
+    // Pattern: "Let me think about this..." followed by main response
+    const thinkingPatterns = [
+        /^(Let me think about this[\s\S]*?)\n\n([^]*)/i,
+        /^(I need to consider[\s\S]*?)\n\n([^]*)/i,
+        /^(Thinking through this[\s\S]*?)\n\n([^]*)/i,
+    ];
+    
+    for (const pattern of thinkingPatterns) {
+        const match = response.match(pattern);
+        if (match && match[1].length > 50) { // Only if thinking is substantial
+            return {
+                thinking: match[1].trim(),
+                response: match[2].trim(),
+                hasThinking: true
+            };
+        }
+    }
+    
+    // If no thinking pattern found, return as regular response
+    return {
+        thinking: null,
+        response: response.trim(),
+        hasThinking: false
+    };
+}
+
+/**
+ * Create a thinking-aware prompt that encourages step-by-step reasoning
+ */
+function createThinkingPrompt(originalPrompt, enableThinking = true) {
+    if (!enableThinking) {
+        return originalPrompt;
+    }
+    
+    return `${originalPrompt}
+
+Think step by step and show your reasoning process. Format your response as:
+
+<think>
+[Your detailed thinking process, analysis, and reasoning steps here]
+</think>
+
+[Your final, clear answer here]`;
 }
 
 // Routes
@@ -217,7 +322,7 @@ app.post('/api/initialize', async (req, res) => {
 // Chat endpoint - before RAG
 app.post('/api/chat/before-rag', async (req, res) => {
     try {
-        const { topic } = req.body;
+        const { topic, enableThinking = true } = req.body;
         
         if (!topic) {
             return res.status(400).json({ error: 'Topic is required' });
@@ -230,21 +335,24 @@ app.post('/api/chat/before-rag', async (req, res) => {
             });
         }
 
-        console.log(`💬 Before RAG query: ${topic}`);
+        console.log(`💬 Before RAG query: ${topic} (thinking: ${enableThinking})`);
 
-        const prompt = ChatPromptTemplate.fromTemplate(
-            config.get('BEFORE_RAG_PROMPT', "What is {topic} in under 100 words?")
-        );
-
-        const chain = prompt.pipe(chatModel).pipe(new StringOutputParser());
-        const response = await chain.invoke({ topic });
+        const basePrompt = config.get('BEFORE_RAG_PROMPT', "What is {topic}? Provide a comprehensive but concise explanation.");
+        const promptTemplate = createThinkingPrompt(basePrompt, enableThinking);
         
-        console.log(`✅ Before RAG response generated`);
+        const prompt = ChatPromptTemplate.fromTemplate(promptTemplate);
+        const chain = prompt.pipe(chatModel).pipe(new StringOutputParser());
+        
+        const rawResponse = await chain.invoke({ topic });
+        const parsedResponse = parseThinkingResponse(rawResponse);
+        
+        console.log(`✅ Before RAG response generated (thinking: ${parsedResponse.hasThinking})`);
         
         res.json({ 
-            response,
+            ...parsedResponse,
             method: 'before-rag',
-            topic 
+            topic,
+            rawResponse: rawResponse // Include for debugging
         });
 
     } catch (error) {
@@ -253,10 +361,11 @@ app.post('/api/chat/before-rag', async (req, res) => {
     }
 });
 
+
 // Chat endpoint - with RAG
 app.post('/api/chat/with-rag', async (req, res) => {
     try {
-        const { question } = req.body;
+        const { question, enableThinking = true } = req.body;
         
         if (!question) {
             return res.status(400).json({ error: 'Question is required' });
@@ -269,18 +378,19 @@ app.post('/api/chat/with-rag', async (req, res) => {
             });
         }
 
-        console.log(`🔍 RAG query: ${question}`);
+        console.log(`🔍 RAG query: ${question} (thinking: ${enableThinking})`);
 
-        const promptTemplate = config.get('RAG_PROMPT', 
-            `Answer the question based only on the following context in under 100 words:
+        const basePrompt = config.get('RAG_PROMPT', 
+            `Answer the question based only on the following context:
 
 {context}
 
 Question: {question}
 
-Answer:`
+Provide a comprehensive answer based on the context provided.`
         );
-
+        
+        const promptTemplate = createThinkingPrompt(basePrompt, enableThinking);
         const prompt = ChatPromptTemplate.fromTemplate(promptTemplate);
 
         const chain = RunnableSequence.from([
@@ -297,19 +407,92 @@ Answer:`
             new StringOutputParser(),
         ]);
 
-        const response = await chain.invoke({ question });
+        const rawResponse = await chain.invoke({ question });
+        const parsedResponse = parseThinkingResponse(rawResponse);
         
-        console.log(`✅ RAG response generated`);
+        console.log(`✅ RAG response generated (thinking: ${parsedResponse.hasThinking})`);
         
         res.json({ 
-            response,
+            ...parsedResponse,
             method: 'with-rag',
-            question 
+            question,
+            rawResponse: rawResponse // Include for debugging
         });
 
     } catch (error) {
         console.error('❌ Error in RAG chat:', error);
         res.status(500).json({ error: 'Internal server error: ' + error.message });
+    }
+});
+
+// Add a new endpoint to test thinking responses
+app.post('/api/chat/test-thinking', async (req, res) => {
+    try {
+        const { prompt } = req.body;
+        
+        if (!prompt) {
+            return res.status(400).json({ error: 'Prompt is required' });
+        }
+
+        if (!chatModel) {
+            return res.status(503).json({ 
+                error: 'Chat model not initialized',
+                needsInitialization: true
+            });
+        }
+
+        console.log(`🧪 Testing thinking response for: ${prompt}`);
+
+        const thinkingPrompt = `${prompt}
+
+Please think through this step by step and show your reasoning. Format your response as:
+
+<think>
+Let me analyze this question...
+[Your detailed thinking process here]
+</think>
+
+[Your final answer here]`;
+
+        const response = await chatModel.invoke(thinkingPrompt);
+        const parsedResponse = parseThinkingResponse(response);
+        
+        console.log(`✅ Test thinking response generated (thinking: ${parsedResponse.hasThinking})`);
+        
+        res.json({
+            ...parsedResponse,
+            method: 'test-thinking',
+            originalPrompt: prompt,
+            rawResponse: response
+        });
+
+    } catch (error) {
+        console.error('❌ Error in test thinking:', error);
+        res.status(500).json({ error: 'Internal server error: ' + error.message });
+    }
+});
+
+// Add endpoint to configure thinking behavior
+app.post('/api/config/thinking', (req, res) => {
+    try {
+        const { enableByDefault, thinkingPromptSuffix } = req.body;
+        
+        // You could store this in your config system
+        // For now, just acknowledge the settings
+        
+        res.json({
+            success: true,
+            settings: {
+                enableByDefault: enableByDefault !== false,
+                thinkingPromptSuffix: thinkingPromptSuffix || "Think step by step and show your reasoning."
+            }
+        });
+        
+    } catch (error) {
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
     }
 });
 
