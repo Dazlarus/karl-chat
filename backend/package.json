@@ -1,0 +1,29 @@
+{
+  "name": "karl_chat_backend",
+  "version": "0.0.1",
+  "description": "RAG-based chatbot backend using LangChain, Neo4j, and Ollama",
+  "main": "backend/Server.js",
+  "scripts": {
+    "start": "node backend/Server.js",
+    "dev": "nodemon backend/Server.js",
+    "client": "cd client && npm start",
+    "dev:full": "concurrently \"npm run dev\" \"npm run client\""
+  },
+  "dependencies": {
+    "express": "5.1.0",
+    "cors": "^2.8.5",
+    "@langchain/community": "^0.3.0",
+    "@langchain/core": "^0.3.0",
+    "@langchain/ollama": "0.2.3",
+    "@langchain/textsplitters": "^0.1.0",
+    "cheerio": "^1.0.0",
+    "neo4j-driver": "^5.15.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "concurrently": "9.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

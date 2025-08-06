@@ -1,0 +1,8 @@
+{
+  "short_name": "Karl Chat",
+  "name": "Karl Chatbot Application",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff"
+}

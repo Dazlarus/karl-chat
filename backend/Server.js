@@ -1,3 +1,4 @@
+// backend/Server.js - Updated to use hierarchical configuration
 const express = require('express');
 const cors = require('cors');
 
@@ -10,23 +11,35 @@ const { ChatPromptTemplate } = require('@langchain/core/prompts');
 const { StringOutputParser } = require('@langchain/core/output_parsers');
 const { RunnableSequence, RunnablePassthrough } = require('@langchain/core/runnables');
 
-const config = require('../src/config');
+// Use hierarchical configuration system
+const config = require('./config');
 
 const app = express();
-const PORT = process.env.PORT || 5000; // Different port from React (3000)
+
+// Validate configuration
+try {
+    config.validate();
+} catch (error) {
+    console.error('❌ Configuration validation failed:', error.message);
+    process.exit(1);
+}
+
+// Load configuration values
+const OLLAMA_HOST = config.get('OLLAMA_HOST');
+const OLLAMA_PORT = config.get('OLLAMA_PORT');
+const DEFAULT_MODEL = config.get('DEFAULT_MODEL');
+const NEO4J_URI = config.get('NEO4J_URI');
+const NEO4J_USERNAME = config.get('NEO4J_USERNAME');
+const NEO4J_PASSWORD = config.get('NEO4J_PASSWORD');
+const SERVER_PORT = config.get('SERVER_PORT');
+const CORS_ORIGIN = config.get('CORS_ORIGIN');
 
 // Middleware
 app.use(cors({
-    origin: 'http://localhost:3000', // Allow React app
+    origin: CORS_ORIGIN,
     credentials: true
 }));
 app.use(express.json());
-
-// Load configuration
-const appConfig = config.loadConfig();
-const OLLAMA_HOST = appConfig.OLLAMA_HOST || 'localhost';
-const OLLAMA_PORT = appConfig.OLLAMA_PORT || '11434';
-const DEFAULT_MODEL = appConfig.DEFAULT_MODEL || 'llama3.2';
 
 // Initialize components
 let vectorstore = null;
@@ -67,12 +80,12 @@ async function initializeRAG() {
             throw new Error(`Cannot connect to Ollama at ${OLLAMA_HOST}:${OLLAMA_PORT}. Make sure Ollama is running.`);
         }
 
-        // Default URLs
-        const urls = [
+        // Default URLs - these could also come from config
+        const urls = config.get('DOCUMENT_URLS', [
             "https://ollama.com",
             "https://ollama.com/blog/windows-preview",
             "https://ollama.com/blog/openai-compatibility",
-        ];
+        ]);
 
         // Load and process documents
         const docs = [];
@@ -98,8 +111,8 @@ async function initializeRAG() {
 
         // Split documents
         const textSplitter = new RecursiveCharacterTextSplitter({
-            chunkSize: 1000,
-            chunkOverlap: 200,
+            chunkSize: config.get('CHUNK_SIZE', 1000),
+            chunkOverlap: config.get('CHUNK_OVERLAP', 200),
         });
 
         const docSplits = await textSplitter.splitDocuments(docs);
@@ -109,23 +122,23 @@ async function initializeRAG() {
         console.log('🗄️ Creating vector store...');
         try {
             vectorstore = await Neo4jVectorStore.fromDocuments(docSplits, embeddings, {
-                url: "bolt://localhost:7687",
-                username: "neo4j",
-                password: "password",
-                indexName: "vector_index",
-                nodeLabel: "Document",
-                textNodeProperty: "text",
-                embeddingNodeProperty: "embedding",
+                url: NEO4J_URI,
+                username: NEO4J_USERNAME,
+                password: NEO4J_PASSWORD,
+                indexName: config.get('NEO4J_INDEX_NAME', 'vector_index'),
+                nodeLabel: config.get('NEO4J_NODE_LABEL', 'Document'),
+                textNodeProperty: config.get('NEO4J_TEXT_PROPERTY', 'text'),
+                embeddingNodeProperty: config.get('NEO4J_EMBEDDING_PROPERTY', 'embedding'),
             });
 
             retriever = vectorstore.asRetriever({
-                k: 4,
+                k: config.get('RETRIEVER_K', 4),
             });
             
             console.log('🎉 RAG system initialized successfully!');
         } catch (error) {
             console.error('❌ Neo4j connection failed:', error.message);
-            throw new Error(`Cannot connect to Neo4j. Make sure Neo4j is running with correct credentials.`);
+            throw new Error(`Cannot connect to Neo4j at ${NEO4J_URI}. Make sure Neo4j is running with correct credentials.`);
         }
         
     } catch (error) {
@@ -139,7 +152,7 @@ async function initializeRAG() {
 
 // Routes
 
-// Health check
+// Health check with configuration info
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'ok', 
@@ -151,9 +164,36 @@ app.get('/api/health', (req, res) => {
         config: {
             ollamaHost: OLLAMA_HOST,
             ollamaPort: OLLAMA_PORT,
-            model: DEFAULT_MODEL
+            model: DEFAULT_MODEL,
+            neo4jUri: NEO4J_URI.replace(/\/\/.*@/, '//***@'), // Hide credentials
+            configSources: config.getConfigSources()
         }
     });
+});
+
+// Configuration endpoint
+app.get('/api/config', (req, res) => {
+    res.json({
+        config: config.getSafeConfig(),
+        sources: config.getConfigSources()
+    });
+});
+
+// Reload configuration endpoint
+app.post('/api/config/reload', (req, res) => {
+    try {
+        const newConfig = config.reload();
+        res.json({ 
+            success: true, 
+            message: 'Configuration reloaded successfully',
+            config: config.getSafeConfig()
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
+    }
 });
 
 // Initialize RAG endpoint
@@ -193,7 +233,7 @@ app.post('/api/chat/before-rag', async (req, res) => {
         console.log(`💬 Before RAG query: ${topic}`);
 
         const prompt = ChatPromptTemplate.fromTemplate(
-            "What is {topic} in under 100 words?"
+            config.get('BEFORE_RAG_PROMPT', "What is {topic} in under 100 words?")
         );
 
         const chain = prompt.pipe(chatModel).pipe(new StringOutputParser());
@@ -231,7 +271,7 @@ app.post('/api/chat/with-rag', async (req, res) => {
 
         console.log(`🔍 RAG query: ${question}`);
 
-        const prompt = ChatPromptTemplate.fromTemplate(
+        const promptTemplate = config.get('RAG_PROMPT', 
             `Answer the question based only on the following context in under 100 words:
 
 {context}
@@ -240,6 +280,8 @@ Question: {question}
 
 Answer:`
         );
+
+        const prompt = ChatPromptTemplate.fromTemplate(promptTemplate);
 
         const chain = RunnableSequence.from([
             {
@@ -278,14 +320,13 @@ app.use((error, req, res, next) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-    console.log(`🚀 Karl Chat Backend Server running on http://localhost:${PORT}`);
-    console.log(`📡 Frontend should run on http://localhost:3000`);
-    console.log(`🔧 Configuration:
-- Ollama Host: ${OLLAMA_HOST}
-- Ollama Port: ${OLLAMA_PORT}
-- Model: ${DEFAULT_MODEL}
-- Neo4j: bolt://localhost:7687`);
+app.listen(SERVER_PORT, () => {
+    console.log(`🚀 Karl Chat Backend Server running on http://localhost:${SERVER_PORT}`);
+    console.log(`📡 Frontend should run on ${CORS_ORIGIN}`);
+    console.log(`🔧 Configuration loaded from multiple sources:`);
+    console.log(`- Ollama: ${OLLAMA_HOST}:${OLLAMA_PORT}`);
+    console.log(`- Model: ${DEFAULT_MODEL}`);
+    console.log(`- Neo4j: ${NEO4J_URI.replace(/\/\/.*@/, '//***@')}`);
     
     // Auto-initialize RAG system
     console.log('\n🤖 Auto-initializing RAG system...');
